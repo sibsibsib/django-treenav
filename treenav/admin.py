@@ -41,11 +41,11 @@ class MenuItemAdmin(TreeAdmin, MPTTModelAdmin):
         'parent',
         'link',
         'href_link',
-        'order',
+        'language',
         'is_enabled',
         'is_group',
     )
-    list_filter = ('parent', 'is_enabled')
+    list_filter = ('language', 'is_enabled', 'parent',)
     prepopulated_fields = {'slug': ('label',)}
     inlines = (SubMenuItemInline,)
     fieldsets = (
