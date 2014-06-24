@@ -1,18 +1,19 @@
 import re
 
-from django.db import models
-from django.utils.translation import ugettext_lazy as _
-from django.contrib.contenttypes.models import ContentType
+from django.conf import settings
 from django.contrib.contenttypes import generic
-from django.db.models.signals import post_save
-from django.core.exceptions import ObjectDoesNotExist
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.urlresolvers import reverse
+from django.db import models
 from django.db.models.query import QuerySet
+from django.db.models.signals import post_save
+from django.utils.translation import ugettext_lazy as _
 
 from mptt.managers import TreeManager
 from mptt.models import MPTTModel, TreeForeignKey
 from mptt.utils import previous_current_next
+from south.signals import pre_migrate
 
 
 class Item(object):
@@ -21,16 +22,16 @@ class Item(object):
         self.node = node
         self.children = []
         self.active = False
-    
+
     def __repr__(self):
         return str(self.node)
-    
+
     def add_child(self, item):
         if hasattr(self, '_enabled_children'):
             del self._enabled_children
         item.parent = self
         self.children.append(item)
-    
+
     @property
     def enabled_children(self):
         children = getattr(self, '_enabled_children', None)
@@ -38,7 +39,7 @@ class Item(object):
             children = [c for c in self.children if c.node.is_enabled]
             self._enabled_children = children
         return children
-    
+
     def set_active(self, href):
         active_node = None
         if (self.node.href.startswith('^') and
@@ -54,13 +55,13 @@ class Item(object):
             if child:
                 active_node = child
         return active_node
-    
+
     def get_active_items(self):
         if not self.parent:
             return [self]
         else:
             return self.parent.get_active_items() + [self]
-    
+
     def to_dict(self):
         return {
             'node': self.node,
@@ -80,63 +81,45 @@ class MenuUnCacheQuerySet(QuerySet):
     def delete(self, *args, **kwargs):
         delete_cache()
         super(MenuUnCacheQuerySet, self).delete(*args, **kwargs)
-        
+
     def update(self, *args, **kwargs):
         delete_cache()
         super(MenuUnCacheQuerySet, self).update(*args, **kwargs)
 
-    
+
 class MenuItemManager(models.Manager):
-    def get_query_set(self):    
+    def get_query_set(self):
         return MenuUnCacheQuerySet(self.model)
 
-    
+
 class MenuItem(MPTTModel):
 
     parent = TreeForeignKey('self', null=True, blank=True, related_name='children')
-    label = models.CharField(
-        _('label'),
-        max_length=255,
-        help_text="The display name on the web site.",
-    )
-    slug = models.SlugField(
-        _('slug'),
-        unique=True,
-        max_length=255,
-        help_text="Unique identifier for this menu item (also CSS ID)"
-    )
-    order = models.IntegerField(
-        _('order'),
-        choices=[(x, x) for x in xrange(0, 51)],
-    )
-    is_enabled = models.BooleanField(default=True)
-    link = models.CharField(
-        _('link'),
-        max_length=255,
-        help_text="The view of the page you want to link to, as a python path or the shortened URL name.",
-        blank=True,
-    )
-    content_type = models.ForeignKey(
-        ContentType,
-        null=True,
-        blank=True,
-    )
-    object_id = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-    )
+    label = models.CharField(_('label'), max_length=255, help_text="The display name on the web site.")
+    slug = models.SlugField(_('slug'), unique=True, max_length=255, help_text="Unique identifier for this menu item (also CSS ID)")
+    order = models.IntegerField(_('order'), default=100)
+    language = models.CharField(_('language'), max_length=255, choices=settings.LANGUAGES, default=settings.LANGUAGE_CODE)
+    is_enabled = models.BooleanField(_('enabled'), default=True,
+        help_text='unchecking this box will hide this item and all its children')
+    is_group = models.BooleanField(_('group'), default=False,
+        help_text='check this box if this item is intended for structure only.')
+    link = models.CharField(_('link'), max_length=2048, blank=True,
+        help_text="The view of the page you want to link to, as a python path or the shortened URL name.")
+    href = models.CharField(_('href'), editable=False, max_length=2048)
+
+    content_type = models.ForeignKey(ContentType, null=True, blank=True)
+    object_id = models.PositiveIntegerField(null=True, blank=True)
     content_object = generic.GenericForeignKey('content_type', 'object_id')
-    href = models.CharField(_('href'), editable=False, max_length=255)
 
     objects = MenuItemManager()
     tree = TreeManager()
-    
+
     class Meta:
         ordering = ('lft', 'tree_id')
 
     class MPTTMeta:
         order_insertion_by = ('order', )
-    
+
     def to_tree(self):
         cache_key = 'menu-tree-%s' % self.slug
         root = cache.get(cache_key)
@@ -157,7 +140,7 @@ class MenuItem(MPTTModel):
                     previous_item.parent.add_child(item)
             cache.set(cache_key, root)
         return root
-    
+
     def save(self, *args, **kwargs):
         literal_url_prefixes = ('/', 'http://', 'https://')
         regex_url_prefixes = ('^',)
@@ -165,7 +148,7 @@ class MenuItem(MPTTModel):
             if any([self.link.startswith(s) for s in literal_url_prefixes]):
                 self.href = self.link
             elif any([self.link.startswith(s) for s in regex_url_prefixes]):
-                self.href = '' # regex should not be used as an actual URL
+                self.href = ''  # regex should not be used as an actual URL
             else:
                 self.href = reverse(self.link)
         elif self.content_object:
@@ -178,7 +161,7 @@ class MenuItem(MPTTModel):
     def delete(self, *args, **kwargs):
         delete_cache()
         super(MenuItem, self).delete(*args, **kwargs)
-    
+
     def __unicode__(self):
         return self.slug
 
@@ -205,4 +188,12 @@ def treenav_save_other_object_handler(sender, instance, created, **kwargs):
             if item.href != instance.get_absolute_url():
                 item.href = instance.get_absolute_url()
                 item.save()
+
 post_save.connect(treenav_save_other_object_handler)
+
+
+def premigrate_handler(*args, **kwargs):
+    # disable the signal during migrations or you're gonna have a bad time
+    post_save.disconnect(treenav_save_other_object_handler)
+
+pre_migrate.connect(premigrate_handler)

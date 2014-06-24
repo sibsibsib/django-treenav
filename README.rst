@@ -1,6 +1,7 @@
 django-treenav
 ==============
 
+
 An extensible, hierarchical, and pluggable navigation system for Django sites.
 
 *django-treenav* was designed from the start to live independent of a CMS
@@ -15,6 +16,19 @@ CMS product.
 
 For complete documentation checkout, `<http://django-treenav.readthedocs.org>`_
 
+
+Fork Notes
+----------
+
+This fork includes some additional features and usability enhancements:
+
+- integrates django-treeadmin for re-ordering hierarchy from within changelist view
+- integrates django-autocomplete-light for easy to use generic foreign key search
+- adds `is_group` flag for ability to provide structural elements
+
+see *Installation* for additional notes on setup.
+
+
 Features
 --------
 
@@ -27,10 +41,14 @@ Features
 - Simple links in the `MenuItem` list view for refreshing the cache and href
   from the database.
 
+
 Requirements
 ------------
 - `django <https://github.com/django/django/>`_ >= 1.3
 - `django-mptt <http://github.com/django-mptt/django-mptt/>`_ >= 0.5.2
+- `django-treeadmin <https://github.com/piquadrat/django-treeadmin>`_ >= 0.4.1
+- `django-autocomplete-light <https://github.com/yourlabs/django-autocomplete-light>`_ >= 2.0.0
+
 
 Using the demo
 --------------
@@ -56,6 +74,8 @@ Installation
     pip install django-treenav
 
 
+#. Follow setup instructions for django-treeadmin and django-autocomplete-light
+
 #. Add to your `INSTALLED_APPS` and run syncdb::
 
     INSTALLED_APPS = (
@@ -78,6 +98,21 @@ Installation
     urlpatterns = patterns('',
         (r'^treenav/', include('treenav.urls')),
     )
+
+#. Create a new autocomplete group called NavigationItems:
+
+    # example. See autocomplete docs for more options.
+    class NavigationItems(autocomplete_light.AutocompleteGenericBase):
+
+        choices = (
+            Page.objects.all(),
+        )
+
+        search_fields = (
+            ('name', ),
+        )
+
+    autocomplete_light.register(NavigationItems)
 
 
 Development sponsored by `Caktus Consulting Group, LLC

@@ -1,9 +1,8 @@
 from django import forms
 from django.core.urlresolvers import reverse, NoReverseMatch
-from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ObjectDoesNotExist
 from django.core.validators import URLValidator
 
+import autocomplete_light
 from treenav.models import MenuItem
 from mptt.forms import TreeNodeChoiceField, MPTTAdminForm
 
@@ -28,21 +27,6 @@ class MenuItemFormMixin(object):
 
     def clean(self):
         super(MenuItemFormMixin, self).clean()
-        content_type = self.cleaned_data['content_type']
-        object_id = self.cleaned_data['object_id']
-        if (content_type and not object_id) or (not content_type and object_id):
-            raise forms.ValidationError(
-                "Both 'Content type' and 'Object id' must be specified to use generic relationship"
-            )
-        if content_type and object_id:
-            try:
-                obj = content_type.get_object_for_this_type(pk=object_id)
-            except ObjectDoesNotExist, e:
-                raise forms.ValidationError(str(e))
-            try:
-                obj.get_absolute_url()
-            except AttributeError, e:
-                raise forms.ValidationError(str(e))
 
         if 'is_enabled' in self.cleaned_data and \
           self.cleaned_data['is_enabled'] and \
@@ -53,13 +37,33 @@ class MenuItemFormMixin(object):
         return self.cleaned_data
 
 
-class MenuItemForm(MenuItemFormMixin, MPTTAdminForm):
+class MenuItemForm(MenuItemFormMixin, autocomplete_light.GenericModelForm, MPTTAdminForm):
+
+    content_object = autocomplete_light.GenericModelChoiceField(
+        label='linked object',
+        required=False,
+        widget=autocomplete_light.ChoiceWidget(
+            autocomplete='NavigationItems',
+            autocomplete_js_attributes={'minimum_characters': 0},
+            attrs={'size': '40'},
+        ),
+    )
 
     class Meta:
         model = MenuItem
 
 
-class MenuItemInlineForm(MenuItemFormMixin, forms.ModelForm):
+class MenuItemInlineForm(MenuItemFormMixin, autocomplete_light.GenericModelForm, forms.ModelForm):
+
+    content_object = autocomplete_light.GenericModelChoiceField(
+        label='linked object',
+        required=False,
+        widget=autocomplete_light.ChoiceWidget(
+            autocomplete='NavigationItems',
+            autocomplete_js_attributes={'minimum_characters': 0},
+            attrs={'size': '40'},
+        ),
+    )
 
     class Meta:
         model = MenuItem
@@ -70,6 +74,7 @@ class GenericInlineMenuItemForm(forms.ModelForm):
         queryset=MenuItem.tree.all(),
         required=False
     )
+
     class Meta:
         model = MenuItem
         fields = ('parent', 'label', 'slug', 'order', 'is_enabled')
