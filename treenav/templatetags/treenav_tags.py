@@ -1,7 +1,9 @@
 from django import template
 from django.core.cache import cache
+from django.db.models import Q
 from django.template.loader import render_to_string
 from django.template import RequestContext, Context
+from django.utils import translation
 
 from treenav.models import MenuItem
 from treenav.templatetags import CaktNode, parse_args_kwargs
@@ -144,5 +146,9 @@ def show_menu_crumbs(parser, token):
 
 
 @register.assignment_tag
-def nav_tree(name=None, max_levels=None):
-    return MenuItem.tree.get_filtered_tree(name, max_levels)
+def nav_tree(name=None, max_levels=None, use_language=True):
+    query_filter = Q(is_enabled=True)
+    if use_language:
+        query_filter &= Q(language=translation.get_language())
+
+    return MenuItem.tree.get_filtered_tree(name, max_levels, query_filter)
