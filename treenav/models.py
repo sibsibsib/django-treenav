@@ -4,8 +4,10 @@ from django.conf import settings
 from django.contrib.contenttypes import generic
 from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.urlresolvers import reverse
 from django.db import models
+from django.db.models import Q
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_save
 from django.utils.translation import ugettext_lazy as _
@@ -92,6 +94,39 @@ class MenuItemManager(models.Manager):
         return MenuUnCacheQuerySet(self.model)
 
 
+class MenuItemTreeManager(TreeManager):
+
+    def get_filtered_tree(self, name=None, max_levels=None, query_filter=None):
+        max_depth = max_levels
+        parent = None
+        root_depth = 0
+        query_set = self.get_query_set()
+
+        if query_filter is None:
+            query_filter = Q(is_enabled=True)
+
+        if name:
+            try:
+                parent = query_set.filter(query_filter).get(slug=name)
+                max_depth = max_levels and parent.level + max_levels
+                root_depth = parent.level
+            except ObjectDoesNotExist:
+                return []
+
+        extra_params = {
+            'select': {'rel_level': 'level - %s'},
+            'select_params': [root_depth],
+        }
+
+        if max_depth is not None:
+            query_filter &= Q(level__lte=max_depth - 1)
+
+        if parent:
+            return parent.get_descendants(include_self=True).filter(query_filter).extra(**extra_params)
+
+        return query_set.filter(query_filter).extra(**extra_params)
+
+
 class MenuItem(MPTTModel):
 
     parent = TreeForeignKey('self', null=True, blank=True, related_name='children')
@@ -112,7 +147,7 @@ class MenuItem(MPTTModel):
     content_object = generic.GenericForeignKey('content_type', 'object_id')
 
     objects = MenuItemManager()
-    tree = TreeManager()
+    tree = MenuItemTreeManager()
 
     class Meta:
         ordering = ('lft', 'tree_id')
